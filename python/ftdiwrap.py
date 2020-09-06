@@ -8,6 +8,7 @@ import hexdump
 import sys
 #from pylibftdi import Device, Driver, INTERFACE_B
 import pylibftdi
+import re
 
 class FTDIWrap_Err(Exception):
     """Generic FTDIWrap exception
@@ -78,7 +79,16 @@ class LibFTDI_wrap():
             print("##Rx: %s" % (l))
         return ret_b
 
-        
+    def expect(self, match, timeout=1):
+        """reads out buffered input, returns True if match contained in input"""
+        rx_buff = self.rx(secs=timeout)
+        if type(match) == str:
+            msg=str.encode(match, 'utf-8')
+        m = re.compile(re.escape(match))
+        if m.search(rx_buff) == None:
+            return False
+        else:
+            return True
  
     
 
