@@ -43,6 +43,7 @@ class LibFTDI_wrap():
         self.rx_poll_n=10
         self.rx_timeout_s=1
         self.read_size = 128
+        self.default_read_chunk_size=128
         self.verbose=1
         self.tx_ex_raise_except = False
 
@@ -78,19 +79,33 @@ class LibFTDI_wrap():
     
         return ret
 
-    def rx(self, secs=None):
+    def rx(self, secs=None, n=None):
         if (secs == None):
             secs=self.rx_timeout_s
+        if (n == None):
+            n=self.default_read_chunk_size
+            print("##QQ default read size %d enabled" %(n))
+        else:
+            print("##Rx::n_bytes=%d" %(n))
         poll_time =secs / self.rx_poll_n
      
         ret_b = bytes()
-     
+        bytes_left_to_read = n
         # poll the device at most rx_poll_n times
         for i in range(0, self.rx_poll_n):
-            t = self.dev.read(self.read_size)
+            t = self.dev.read( min(self.default_read_chunk_size, bytes_left_to_read))
             ret_b += t
+            bytes_left_to_read -= len(t)
+            if (bytes_left_to_read == 0):
+                print("##RX !! limit rx bytes hit. returning")
+                #ex_buff = self.dev.read(self.default_read_chunk_size)
+                #print("##There are %d to many bytes dequeued" % (len(ex_buff)))
+                #print("## XX %s" % (repr(ex_buff)))
+                break
+            if (bytes_left_to_read < 0):
+                raise(FTDIWrap_Err('RX_Overflow', ret, len(msg)))
             time.sleep(poll_time)
-        
+
         if (self.verbose):
             for l in (hexdump.hexdump(ret_b,'generator')):
                 print("##Rx(%03d)--: %s ##"  % (len(ret_b), l))
@@ -107,7 +122,7 @@ class LibFTDI_wrap():
 
     def tx_ex(self, tx_s, ex_s):
         self.tx(tx_s)
-        r_buff = self.rx()
+        r_buff = self.rx(1, len(ex_s))
         
         ret = self.find_b(r_buff, ex_s)
         if (ret == -1 and self.tx_ex_raise_except):
