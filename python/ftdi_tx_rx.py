@@ -8,28 +8,29 @@ from ftdiwrap import LibFTDI_wrap
 
 def perform_sync(dev):
 
-    try_s=[]
-    ##send '?', receive 'Synchronized
-    try_s.append ((b'?', b'Synchronized\r\n'))
-    try_s.append((b'Synchronized\r\n', b'Synchronized\r'))
-    #try_s.append((b'1200\r\n', b'\x00\x00\x00\x00'))
-    failed_s=[]
+    sync_msg_l=[ (b'?', b'Synchronized\r\n'),
+                 (b'Synchronized\r\n', b'Synchronized\rOK\r'),
+                 (b'12000\r\n', b'12000\rOK\r\n')
+    ]
+  
+    failed_l=[]
     cnt=0
-    for t in try_s:
-        #print("##%02d: Tx:%s, Ex:%s" %(cnt, repr(t[0]), repr(t[1])), end="")
+    for t in sync_msg_l:
         r=dev.tx_ex(t[0],t[1])
-        if (r >= 0):
-            print("👍")
-        else:
+        if (r == -1):
             print("💣")
-            failed_s.append(cnt)
+            failed_l.append( (cnt, t))
+        else:
+            print("👍")
         sleep(1)
         cnt+=1
    
-    if len(failed_s) == 0:
+    if len(failed_l) == 0:
         print("No errors reported! device synced")
-
-
+        return True
+    else:
+        print("## (%d/%d) syncronization messages failed" %(len(failed_l), len(sync_msg_l)))
+        return False
 def read_address(dev, address, length):
     cmd = 'R {:d} {:d}\r\n'.format(address, length)
     dev.tx_ex(cmd, b'\r')
