@@ -25,11 +25,11 @@ class FTDIWrap_Err(Exception):
         self.expected_retval = _ex
         self.action = _action
     def __str__(self):
-        ret = "FTDIWrap Error: %s"
+        ret = "FTDIWrap Error: %s" % (self.action)
         if (self.retval):
-            ret += "returned: %d" % (self.retval)
+            ret += "returned: %s" % (self.retval)
         if (self.expected_retval):
-            ret += " (expected %d)" %(self.expected_retval)
+            ret += " (expected %s)" %(self.expected_retval)
         return ret
 class LibFTDI_wrap():
 
@@ -43,8 +43,23 @@ class LibFTDI_wrap():
         self.rx_poll_n=10
         self.rx_timeout_s=1
         self.read_size = 128
-        self.debug=1
+        self.verbose=1
+        self.tx_ex_raise_except = False
 
+    def find_b(self, buff, contain_s=1):
+        """Performs logical equivalent of str.find, on bytes using reg-ex"""
+        
+        if (type(buff) == str):
+            buff=str.encode(buff, 'utf-8')
+        if (type(contain_s) == str):
+            contain_s=str.encode(contain_s, 'utf-8')
+        
+        m = re.compile(re.escape(contain_s))
+        r=m.search(buff)
+        if r == None:
+            return -1
+        else:
+            return r.start()
 
     def tx(self,msg):
        
@@ -53,9 +68,10 @@ class LibFTDI_wrap():
             msg=str.encode(msg, 'utf-8') 
         #messages are passed to libftdi in TLV format: prepend length
         out_b = struct.pack('B',len(msg)) + msg 
-        for l in (hexdump.hexdump(out_b,'generator')):
-            print("##Tx: %s" % (l))
-        
+        if (self.verbose):
+            for l in (hexdump.hexdump(out_b,'generator')):
+                print("##Tx(%03d)--: %s" % ( len(out_b),l))
+            
         ret = self.dev.write(out_b)
         if (ret != len(out_b)):
             raise FTDIWrap_Err('write', ret, len(out_b))
@@ -73,27 +89,28 @@ class LibFTDI_wrap():
             t = self.dev.read(self.read_size)
             if len(t) > 0:
                 ret_b += t
-                print("##Rx(%d/%d): (%d:%d)" % (i, self.rx_poll_n, len(t), len(ret_b)))
+                #print("##Rx(%d/%d): (%d:%d)" % (i, self.rx_poll_n, len(t), len(ret_b)))
         
-        for l in (hexdump.hexdump(ret_b,'generator')):
-            print("##Rx: %s" % (l))
+        if (self.verbose):
+            #print("%s" %(repr(ret_b)))
+            for l in (hexdump.hexdump(ret_b,'generator')):
+                print("##Rx(%03d)--: %s ##"  % (len(ret_b), l))
         return ret_b
 
     def expect(self, match, timeout=1):
         """reads out buffered input, returns True if match contained in input"""
         rx_buff = self.rx(secs=timeout)
-        if type(match) == str:
-            msg=str.encode(match, 'utf-8')
-        m = re.compile(re.escape(match))
-        if m.search(rx_buff) == None:
-            return False
-        else:
-            return True
- 
-    
+        r=self.find_b(rx_buff, match)
+        return r
 
-
-
+    def tx_ex(self, tx_s, ex_s):
+        self.tx(tx_s)
+        r_buff = self.rx()
+        
+        ret = self.find_b(r_buff, ex_s)
+        if (ret == -1 and self.tx_ex_raise_except):
+            raise FTDIWrap_Err('tx_ex::', r_buff, ex_s)
+        return ret
 def synchronize(self):
     # Detect baud rate
     self.tx('?')
