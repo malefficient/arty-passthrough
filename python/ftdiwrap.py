@@ -66,36 +66,38 @@ class LibFTDI_wrap():
         ##Tx:string passed msg as string, convert to bytes as convenience
         if type(msg) == str:
             msg=str.encode(msg, 'utf-8') 
-        #messages are passed to libftdi in TLV format: prepend length
-        out_b = struct.pack('B',len(msg)) + msg 
+        #out_b=msg
+
         if (self.verbose):
-            for l in (hexdump.hexdump(out_b,'generator')):
-                print("##Tx(%03d)--: %s" % ( len(out_b),l))
+            for l in (hexdump.hexdump(msg,'generator')):
+                print("##Tx(%03d)--: %s" % ( len(msg),l))
             
-        ret = self.dev.write(out_b)
-        if (ret != len(out_b)):
-            raise FTDIWrap_Err('write', ret, len(out_b))
+        ret = self.dev.write(msg)
+        if (ret != len(msg)):
+            raise FTDIWrap_Err('write', ret, len(msg))
     
         return ret
 
     def rx(self, secs=None):
         if (secs == None):
             secs=self.rx_timeout_s
+        poll_time =secs / self.rx_poll_n
+     
         ret_b = bytes()
-        # poll the device at most rx_poll_n times, or secs
-        sleep_val=secs / self.rx_poll_n
+     
+        # poll the device at most rx_poll_n times
         for i in range(0, self.rx_poll_n):
-            time.sleep(sleep_val)
             t = self.dev.read(self.read_size)
-            if len(t) > 0:
-                ret_b += t
-                #print("##Rx(%d/%d): (%d:%d)" % (i, self.rx_poll_n, len(t), len(ret_b)))
+            ret_b += t
+            time.sleep(poll_time)
         
         if (self.verbose):
-            #print("%s" %(repr(ret_b)))
             for l in (hexdump.hexdump(ret_b,'generator')):
                 print("##Rx(%03d)--: %s ##"  % (len(ret_b), l))
+
         return ret_b
+
+
 
     def expect(self, match, timeout=1):
         """reads out buffered input, returns True if match contained in input"""

@@ -45,7 +45,7 @@ def read_address(dev, address, length):
 
 if __name__ == '__main__':
     #S=b'All your base are belong to us!!!\r\n'
-    D=LibFTDI_wrap(pylibftdi.INTERFACE_B, 115200)
+    D=LibFTDI_wrap(pylibftdi.INTERFACE_B, 9600)
     perform_sync(D)
     print("************ flushing rx******")
     sys.exit(0)

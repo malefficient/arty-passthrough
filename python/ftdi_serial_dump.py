@@ -1,12 +1,9 @@
 """
-    Script to test serial devices
+    Simple read-only hex-dumper
 """
 import pylibftdi
 from ftdiwrap import LibFTDI_wrap
-
-
-import ftdiwrap
-S=b'All your base are belong to us!!!\r\n'
 D=LibFTDI_wrap(pylibftdi.INTERFACE_B, 9600)
+D.verbose = True
 while (True):
     D.rx()
