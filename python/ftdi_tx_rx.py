@@ -102,7 +102,7 @@ def read_address(dev, address, length):
     ##Last step: try to syncronize these ACKnowledgements
     ## TODO: Last step: try to syncronize these ACK messages
     dev.tx_ex(b'OK\r\n', b'OK\r\n') ##Acknowledge  reply regardless of retcode 
-    sleep(0.5)
+    #sleep(0.5)
     straggler_buff=dev.rx()
     if len(straggler_buff) != 0:
         print("###Straggler alert:! len(%d)" % (len(straggler_buff)))
@@ -119,8 +119,8 @@ if __name__ == '__main__':
     print("************ flushing rx******")
 
     l = 32
-    for i in range(0x10000000, 0x10000040, l):
-        buff=read_address(D, i,l)
+    for i in range(0x10000000, 0x20000000, l):
+        buff=read_address(D, i,l) #XXX change 16 back to i just checking for overlapping matches
         if (buff == None):
             print("Q")
             #sys.exit(0)
