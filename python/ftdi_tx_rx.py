@@ -11,7 +11,7 @@ def perform_sync(dev):
 
     sync_msg_l=[ (b'?', b'Synchronized\r\n'),
                  (b'Synchronized\r', b'Synchronized\rOK\r\n'),
-                 (b'12000\r', b'12000\rOK\r')]
+                 (b'12000\r', b'12000\rOK\r\n')]
   
     failed_l=[]
     cnt=0
@@ -26,70 +26,101 @@ def perform_sync(dev):
         cnt+=1
    
     if len(failed_l) == 0:
-        print("No errors reported! sending dummy read: 0x80000000 4")
-        dev.tx(b'R 0268435468 0004\r\n')
-        print("###returned")
-        r = dev.rx()
+        #print("No errors reported! sending dummy read: 0x80000000 4")
+        #dev.tx(b'R 0268435468 0004\r\n')
+        #print("###returned")
+        #r = dev.rx()
         return True
     else:
         print("## (%d/%d) syncronization messages failed" %(len(failed_l), len(sync_msg_l)))
         return False
 def read_address(dev, address, length):
     cmd ="R %010d %04d\x0D\x0A" % (address, length)
-    
-    ##TX format: R address len\x0D\x0A
-    ##RX format: R address len\x0D\x30\x0D\x0A
-    ##            Data goes here!
+    ##note: during the synchronization phase the protocol is
+    ##      send(msg)\r recv(mesg)\r\n, once we get to the read command this inexplicably flips to
+    ##      send(msg)\r\n recv(msg)\r
     tx_b = str.encode(cmd, 'utf-8')
     ex_b = tx_b[:-1]
     print("##Expecting:\n")
     print("##Ex(%03d)--:           %s ##\n" % (len(ex_b), hexdump.dump(ex_b)), end="")
-   
-    D.read_size=len(ex_b)
-    r = dev.tx_ex(tx_b, ex_b) #We are carefyl not to read past the echo back by setting D.read_size
-    #TODO: it looks like a max-length argument for rx() would be handy here
-    if (r == -1):
-        print("##Error: did not receive echo back for read request")
-        ##JC: TODO: Log this somewhere or something?
-    else:
-        print("##Read request Acknowledged")
+    ########_---------------
     
-    res=dev.rx()
-    fail=0
-    print("#^^^respons above. if \x0D\x00 THEN good things?")
+    if (dev.tx_ex(tx_b, ex_b) < 0):
+        print("##Error: Echo back failed") 
+        return None
+    ##if we make it this far the command was succesfullly tx'd and echo'd back
+    ##read any/all bytes remaining in the buffer
+    rx_b=dev.rx(n=0x32) #56 == sizeof response for read (len=32)
+    if (len(rx_b) != 56):
+        print("##Warning: un-expected return length: %d" %(len(rx_b)))
+    ##Check return val up front:
+    ##note that even failed commands are ACK'd with OK at end of transaction
+    if (rx_b[0] == 0x30):
+        print("Command returned success (0x30)")
+    else:
+        print("Command failed: (0x%02X)" % rx_b[0])
+
+    ##-----begin new non-forward-looking return parser-----
+    ##Header: response is of the form RETCODE\r\nDATA\r\n ((possible OK\r\n))
+    if (b'\r\n' not in rx_b):
+        print("Major parsing error fail.")
+        sys.exit(0)
+    if rx_b.find(b'\r\n') != 1:
+        print("Error parsing response. Return code not found")
+        sys.exit(0)
+    ret_code=int(rx_b[0])
+    print("Received ret code: %d" % (ret_code))
+    ##pop initial 3 parsed bytes off rx buff
+    rx_b=rx_b[3:]
+    ##look for second newline delineator (required)
+    eol_data=rx_b.find(b'\r\n')
+    print("EOL2 found: %s\n" % (eol_data))
+    read_response=rx_b[:eol_data]
+    print("###ReadResp(%d): %s " % (len(read_response), hexdump.dump(read_response)))
+    if (len(read_response) != 45 and length==32): #known good
+        print("##Warning: unexpected read response length (%d)" %(len(read_response)))
+    rx_b=rx_b[eol_data:]
+    
+    dopple_buff=rx_b
+    rx_b=bytes() ##rx_buff is officially empty
+    print("## doppleganger rx_b: len=%d" % (len(dopple_buff)))
+    print("## DopppleD:  %s" % (hexdump.dump(dopple_buff)))
+    ###---- Okay: the retcode to read request is in ret_code, 
+    ###-----      the newline delimited response is in read_response
+    ###-----      and any ancillary data is in dopple_buff
+    print("###----begin read response interpretation----")
+    print("Ret_code: 0x%02X" % (ret_code))
+    print("len(response_buff) = %d" % (len(read_response)))
+    print("###Todo: retcode validation etc etc")
     sys.exit(0)
-    print("##XXX %s" % (hexdump.dump(res)))
-    if (len (res) != 16):
-        print("##Invalid response size: %d" % (len(res)))
-        return None
-        
-    if (res[0] == 0x24 and res[-2] == 0x0D and res[-1] == 0x0A): ## '$'
-        print("##!!! payload detected")
-        payload=res[1:-2]
-        print("##%s" %(res))
-        print(hexdump.dump(res))
-        return payload
+    if ( rx_b[0] == 0x30 and rx_b[-2] == 0x0D and rx_b[-1] == 0x0A):
+        print("##Read response: %s" % (hexdump.dump(rx_b)))
+        ret=rx_b[3:-2] ##first three bytes are 'header', last two are '\r\n'
+        print("##trimmed retval  : %s" % (hexdump.dump(ret)))
+        D.tx_ex(b'OK\r\n', b'OK\r\n') ##Acknowledge valid reply
+
     else:
-        print("##!Fail on payload validation: fail=%d" % (fail))
-        print(hexdump.dump(res))
-        return None
-    return
+        print("##!Fail on payload validation:")
+        print("##failed retval   : %s" % (hexdump.dump(rx_b)))
+        ret = None
+
+    D.tx_ex(b'OK\r\n', b'OK\r\n') ##Acknowledge  reply regardless of retcode 
+    return ret
     
-    # Check if command succeeded.
-    #if '\r0' in result:
-    #    board_write('OK\r\n')
-    #    expect_read('OK\r\n')
-    #    return result
-
-    return None
-
 if __name__ == '__main__':
     #S=b'All your base are belong to us!!!\r\n'
-    D=LibFTDI_wrap(pylibftdi.INTERFACE_B, 9600)
+    D=LibFTDI_wrap(pylibftdi.INTERFACE_B, 115200)
     perform_sync(D)
     print("************ flushing rx******")
-    for i in range(0x10000000, 0x10000008, 4):
-        read_address(D, i,4)
+
+    l = 32
+    for i in range(0x10000000, 0x10000040, l):
+        buff=read_address(D, i,l)
+        if (buff == None):
+            print("Q")
+            #sys.exit(0)
+        else:
+            print("****0x%08lX,%04d|%s|____" % (i, l, hexdump.dump(buff)))
     
    
     sys.exit(0)

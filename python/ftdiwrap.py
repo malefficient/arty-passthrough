@@ -41,9 +41,9 @@ class LibFTDI_wrap():
         self.mode = _mode
         self.dev.baudrate = baudrate
         self.rx_poll_n=10
-        self.rx_timeout_s=1
-        self.read_size = 128
-        self.default_read_chunk_size=128
+        self.rx_timeout_s=0.01
+        self.read_size = 61
+        self.default_read_chunk_size=61
         self.verbose=1
         self.tx_ex_raise_except = False
 
