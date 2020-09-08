@@ -50,62 +50,67 @@ def read_address(dev, address, length):
         return None
     ##if we make it this far the command was succesfullly tx'd and echo'd back
     ##read any/all bytes remaining in the buffer
-    rx_b=dev.rx(n=0x32) #56 == sizeof response for read (len=32)
-    if (len(rx_b) != 56):
-        print("##Warning: un-expected return length: %d" %(len(rx_b)))
-    ##Check return val up front:
-    ##note that even failed commands are ACK'd with OK at end of transaction
-    if (rx_b[0] == 0x30):
-        print("Command returned success (0x30)")
-    else:
-        print("Command failed: (0x%02X)" % rx_b[0])
-
+    rx_b=dev.rx() 
+    
     ##-----begin new non-forward-looking return parser-----
     ##Header: response is of the form RETCODE\r\nDATA\r\n ((possible OK\r\n))
-    if (b'\r\n' not in rx_b):
-        print("Major parsing error fail.")
-        sys.exit(0)
-    if rx_b.find(b'\r\n') != 1:
-        print("Error parsing response. Return code not found")
-        sys.exit(0)
-    ret_code=int(rx_b[0])
-    print("Received ret code: %d" % (ret_code))
-    ##pop initial 3 parsed bytes off rx buff
-    rx_b=rx_b[3:]
-    ##look for second newline delineator (required)
-    eol_data=rx_b.find(b'\r\n')
-    print("EOL2 found: %s\n" % (eol_data))
-    read_response=rx_b[:eol_data]
-    print("###ReadResp(%d): %s " % (len(read_response), hexdump.dump(read_response)))
-    if (len(read_response) != 45 and length==32): #known good
-        print("##Warning: unexpected read response length (%d)" %(len(read_response)))
-    rx_b=rx_b[eol_data:]
+    ##Phase 1: Retcode
+    ret_code_eol=rx_b.find(b'\r\n')
     
-    dopple_buff=rx_b
+    if (ret_code_eol == -1):
+        print("Fatal error parsing response. Retcode EOL delineator missing.")
+        sys.exit(-2)
+    if (ret_code_eol != 1):
+        print("##Warn! unexpected offset to retcode EOL: %d" % (ret_code_eol))
+    print("ret_code_eol: %d\n" % (ret_code_eol))
+    ret_code=int(rx_b[0]) #ret_code found as expected, single byte followedby \r\n
+    ##pop retcode message off rx_buff
+    rx_b=rx_b[3:]
+    ##Phase 2: response data
+    eol_data=rx_b.find(b'\r\n')
+    if (eol_data == -1):
+        print("##!Medium error parsing response. end of payload not found")
+        sys.exit(-1)
+    read_response=rx_b[:eol_data]
+    
+    ##Phase 3: Dopple buff: Any bytes that were read in following read response data
+    dopple_buff=rx_b[eol_data:]
     rx_b=bytes() ##rx_buff is officially empty
-    print("## doppleganger rx_b: len=%d" % (len(dopple_buff)))
-    print("## DopppleD:  %s" % (hexdump.dump(dopple_buff)))
+    
+    ########End non-forward looking parser. Begin validating and interpreting parsed response
     ###---- Okay: the retcode to read request is in ret_code, 
     ###-----      the newline delimited response is in read_response
     ###-----      and any ancillary data is in dopple_buff
     print("###----begin read response interpretation----")
-    print("Ret_code: 0x%02X" % (ret_code))
-    print("len(response_buff) = %d" % (len(read_response)))
-    print("###Todo: retcode validation etc etc")
-    sys.exit(0)
-    if ( rx_b[0] == 0x30 and rx_b[-2] == 0x0D and rx_b[-1] == 0x0A):
-        print("##Read response: %s" % (hexdump.dump(rx_b)))
-        ret=rx_b[3:-2] ##first three bytes are 'header', last two are '\r\n'
-        print("##trimmed retval  : %s" % (hexdump.dump(ret)))
-        D.tx_ex(b'OK\r\n', b'OK\r\n') ##Acknowledge valid reply
-
+    print("##Ret_code: 0x%02X" % (ret_code))
+    print("##len(response_buff) = %d" % (len(read_response)))
+    print("###ReadResp(%d): %s " % (len(read_response), hexdump.dump(read_response)))
+    if (len(read_response) != 45 and length==32): #known good
+        print("##Warning: unexpected read response length (%d)" %(len(read_response)))
+   
+    if (ret_code == 0x30):
+        print("##Command returned success!")
     else:
-        print("##!Fail on payload validation:")
-        print("##failed retval   : %s" % (hexdump.dump(rx_b)))
-        ret = None
+        print("##Warn: command return fail: 0x%02X" % (ret_code))
+    print("## len(dopple_buf) : %d" % (len(dopple_buff)))
+    print("## dopple_buff: %s" % (hexdump.dump(dopple_buff))) 
 
-    D.tx_ex(b'OK\r\n', b'OK\r\n') ##Acknowledge  reply regardless of retcode 
-    return ret
+
+    for l in (hexdump.hexdump(dopple_buff,'generator')):
+        print("##Dp(%03d)--: %s ##"  % (len(dopple_buff), l))
+    # 4D.tx_ex(b'OK\r\n', b'OK\r\n') ##Acknowledge valid reply
+    ##Last step: try to syncronize these ACKnowledgements
+    ## TODO: Last step: try to syncronize these ACK messages
+    dev.tx_ex(b'OK\r\n', b'OK\r\n') ##Acknowledge  reply regardless of retcode 
+    sleep(0.5)
+    straggler_buff=dev.rx()
+    if len(straggler_buff) != 0:
+        print("###Straggler alert:! len(%d)" % (len(straggler_buff)))
+        for l in (hexdump.hexdump(straggler_buff,'generator')):
+            print("##St(%03d)--: %s ##"  % (len(ret_b), l))
+    else:
+        print("##Good: No straggling bytes detected")
+    return read_response
     
 if __name__ == '__main__':
     #S=b'All your base are belong to us!!!\r\n'
