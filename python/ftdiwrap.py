@@ -46,6 +46,7 @@ class LibFTDI_wrap():
         self.default_read_chunk_size=61
         self.verbose=1
         self.tx_ex_raise_except = False
+        self.hacky_stoponce_state = True
 
     def find_b(self, buff, contain_s=1):
         """Performs logical equivalent of str.find, on bytes using reg-ex"""
@@ -108,7 +109,7 @@ class LibFTDI_wrap():
 
         if (self.verbose):
             for l in (hexdump.hexdump(ret_b,'generator')):
-                print("##Rx(%03d)--: %s ##"  % (len(ret_b), l))
+                print("##Rx(0x%02X)--|%s|"  % (len(ret_b), l))
 
         return ret_b
 

@@ -34,6 +34,11 @@ def perform_sync(dev):
     else:
         print("## (%d/%d) syncronization messages failed" %(len(failed_l), len(sync_msg_l)))
         return False
+
+##"W 268436224 4<CR><LF>" writes 4 bytes of data to address 0x10000300.
+## Name, Pattern programmed in 0x0000 02FC
+## CRP1| 0x12345678
+
 def read_address(dev, address, length):
     cmd ="R %010d %04d\x0D\x0A" % (address, length)
     ##note: during the synchronization phase the protocol is
@@ -46,7 +51,9 @@ def read_address(dev, address, length):
     ########_---------------
     
     if (dev.tx_ex(tx_b, ex_b) < 0):
-        print("##Error: Echo back failed") 
+        print("##Error: Echo back failed: flushing and acking") 
+        dev.rx()
+        dev.tx_ex(b'OK\r\n', b'OK\r\n')
         return None
     ##if we make it this far the command was succesfullly tx'd and echo'd back
     ##read any/all bytes remaining in the buffer
@@ -64,6 +71,16 @@ def read_address(dev, address, length):
         print("##Warn! unexpected offset to retcode EOL: %d" % (ret_code_eol))
     print("ret_code_eol: %d\n" % (ret_code_eol))
     ret_code=int(rx_b[0]) #ret_code found as expected, single byte followedby \r\n
+
+    if (ret_code != 0x30):
+        print("##Error: @0x%08x: ret_code(0x%02x)" % (address, ret_code))
+        if (dev.hacky_stoponce_state):
+            dev.hacky_stoponce_state = False
+            input("Enter to continue")
+        ##TODO: return tuple of (address, ret_code, data)
+        return (ret_code, None)
+    else:
+        dev.hacky_stoponce_state = True #re-enable alerts after a successful command
     ##pop retcode message off rx_buff
     rx_b=rx_b[3:]
     ##Phase 2: response data
@@ -110,20 +127,81 @@ def read_address(dev, address, length):
             print("##St(%03d)--: %s ##"  % (len(ret_b), l))
     else:
         print("##Good: No straggling bytes detected")
-    return read_response
+    #return read_response
+    return(ret_code, read_response)
+
+def dumb_read_address(dev, address, length):
+    cmd = 'R {:d} {:d}\r\n'.format(address, length)
+    dev.tx(cmd)
+
+    result = bytes()
+    # Don't attempt to read more than 10 times
+    for i in range(0,10):
+        result = dev.rx(secs=1)
+        print("##%02d) len(%d)" % (i, len(result)))
+        if b'\r\n' in result:
+            break
+        
+    # Check if command succeeded.
+    if b'\r0' in result:
+        print("Magic 2nd byte found.")
+        dev.tx_ex(b'OK\r\n', b'OK\r\n') 
+        return result
+    else:
+        return None
+def dumb_device_locked(dev):
+    ret=dumb_read_address(dev, 0x00000000,16)
+    if (ret == None):
+        print("Device locked.")
+        return True
+    else:
+        print("Read CRP returned success! device unlocked?") 
+        print("##!!CRP(%dd)|%s|____" % (len(ret), hexdump.dump(ret)))
+        return False
+
+##"W 268436224 4<CR><LF>" writes 4 bytes of data to address 0x10000300.
+def board_write_address(dev, address, buff):
+    cmd = 'W {:d} {:d}\r\n'.format(address, len(buff))
+    print("##Write command1:%s|" % (cmd))
     
+    ###
+    print(cmd)
+    ##dev.tx(cmd)
+
+    result = bytes()
+    # Don't attempt to read more than 10 times
+    for i in range(0,10):
+        result = dev.rx(secs=1)
+        print("##%02d) len(%d)" % (i, len(result)))
+        if b'\r\n' in result:
+            break
+        
+    # Check if command succeeded.
+    if b'\r0' in result:
+        print("Magic 2nd byte found.")
+        dev.tx_ex(b'OK\r\n', b'OK\r\n') 
+        return result
+    else:
+        return None
+    sys.exit(0)
 if __name__ == '__main__':
     #S=b'All your base are belong to us!!!\r\n'
     D=LibFTDI_wrap(pylibftdi.INTERFACE_B, 115200)
     perform_sync(D)
     print("************ flushing rx******")
-
+    if (dumb_device_locked(D)):
+        print("##Womp. Device locked")
+        ##TODO: RESET board here
+    else:
+        print("!!!Device unlocked!!")
+        input("Enter to continue.")
+    sys.exit(0)
     l = 32
     for i in range(0x10000000, 0x20000000, l):
-        buff=read_address(D, i,l) #XXX change 16 back to i just checking for overlapping matches
-        if (buff == None):
-            print("Q")
-            #sys.exit(0)
+        (ret_code, buff)=read_address(D, i,l) #XXX change 16 back to i just checking for overlapping matches
+        if (ret_code != 0x30 or buff == None):
+            print("Error code:0x%x" (ret_code))
+
         else:
             print("****0x%08lX,%04d|%s|____" % (i, l, hexdump.dump(buff)))
     
